@@ -3,12 +3,15 @@ from functools import wraps
 
 def validar_datos_evaluacion(data):
     campos_requeridos = {
-        'tiempo_lectura': float,
-        'errores_escritura': int,
-        'comprension': int,
-        'errores_dictado': int,
-        'respuestas_gramaticales': int,
-        'prediccion': int
+        'tiempo_respuesta': float,
+        'errores_ortograficos': int,
+        'repeticiones': int,
+        'comprension_lectora': float,
+        'ejercicio_dictado': dict,
+        'ejercicio_lectura': dict,
+        'ejercicio_comprension': dict,
+        'prediccion': bool,
+        'confianza_prediccion': float
     }
     
     errores = []
@@ -31,4 +34,4 @@ def manejar_errores(f):
             return f(*args, **kwargs)
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-    return wrapper
+    return wrapper 
