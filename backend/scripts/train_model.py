@@ -1,26 +1,39 @@
-import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-import pickle
+import joblib
+import os
 
-# Datos simulados
-data = pd.DataFrame({
-    'tiempo_lectura': [12, 18, 10, 20, 15, 22, 8, 25, 17, 14],
-    'errores_escritura': [1, 5, 0, 6, 3, 7, 0, 6, 4, 2],
-    'es_dislexico': [0, 1, 0, 1, 0, 1, 0, 1, 1, 0]  # 1 = disléxico
-})
+# Datos de ejemplo para entrenamiento inicial
+X_train = np.array([
+    [10, 2, 1, 0.8],  # [tiempo_respuesta, errores_ortograficos, repeticiones, comprension_lectora]
+    [15, 5, 3, 0.6],
+    [8, 1, 0, 0.9],
+    [20, 7, 4, 0.5],
+    [12, 3, 2, 0.7],
+    [25, 8, 5, 0.4],
+    [9, 1, 1, 0.85],
+    [18, 6, 3, 0.55],
+    [13, 4, 2, 0.75],
+    [22, 7, 4, 0.45]
+])
 
-# Separar X y y
-X = data[['tiempo_lectura', 'errores_escritura']]
-y = data['es_dislexico']
+# Etiquetas (0: no dislexia, 1: posible dislexia)
+y_train = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
 
-# Entrenar modelo
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-model = RandomForestClassifier()
+# Crear y entrenar el modelo
+model = RandomForestClassifier(
+    n_estimators=100,
+    max_depth=None,
+    min_samples_split=2,
+    min_samples_leaf=1,
+    random_state=42
+)
+
+# Entrenar el modelo
 model.fit(X_train, y_train)
 
-# Guardar modelo entrenado
-with open("app/model_dislexia.pkl", "wb") as f:
-    pickle.dump(model, f)
+# Guardar el modelo
+model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'app', 'model_dislexia.pkl')
+joblib.dump(model, model_path)
 
-print("✅ Modelo entrenado y guardado en app/model_dislexia.pkl")
+print(f"Modelo entrenado y guardado en {model_path}")

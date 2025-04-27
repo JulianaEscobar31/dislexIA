@@ -1,56 +1,90 @@
 import joblib
 import numpy as np
-from pathlib import Path
+from sklearn.preprocessing import StandardScaler
+import os
 
-MODEL_PATH = Path(__file__).parent.parent / 'ml' / 'model_dislexia.pkl'
-
-def load_model():
-    return joblib.load(MODEL_PATH)
-
-def preprocess_data(data):
-    """
-    Preprocesa los datos de entrada para el modelo.
-    Orden de características:
-    [tiempo_respuesta, errores_ortograficos, repeticiones, comprension_lectora, 
-     palabras_dictado, errores_dictado, tiempo_lectura, errores_lectura, 
-     preguntas_comprension, correctas_comprension]
-    """
-    features = np.array([
-        data['tiempo_respuesta'],
-        data['errores_ortograficos'],
-        data['repeticiones'],
-        data['comprension_lectora'],
-        data['ejercicio_dictado']['palabras'],
-        data['ejercicio_dictado']['errores'],
-        data['ejercicio_lectura']['tiempo'],
-        data['ejercicio_lectura']['errores'],
-        data['ejercicio_comprension']['preguntas'],
-        data['ejercicio_comprension']['correctas']
-    ]).reshape(1, -1)
-    
-    return features
-
-def predict_dislexia(data):
-    """
-    Realiza la predicción de dislexia basada en los datos de entrada.
-    
-    Args:
-        data (dict): Diccionario con los datos de los ejercicios
+class MLService:
+    def __init__(self):
+        self.model = None
+        self.scaler = StandardScaler()
+        self.load_model()
         
-    Returns:
-        tuple: (prediccion, confianza)
-    """
-    try:
-        model = load_model()
-        features = preprocess_data(data)
+    def load_model(self):
+        """Carga el modelo entrenado y el scaler"""
+        model_path = os.path.join(os.path.dirname(__file__), '..', 'model_dislexia.pkl')
+        if os.path.exists(model_path):
+            self.model = joblib.load(model_path)
+        else:
+            raise FileNotFoundError("Modelo no encontrado")
+            
+    def predict_dislexia(self, features):
+        """Realiza una predicción usando el modelo entrenado"""
+        if not self.model:
+            raise Exception("Modelo no cargado")
+            
+        # Preparar features
+        feature_names = [
+            'tiempo_respuesta',
+            'errores_ortograficos',
+            'repeticiones',
+            'comprension_lectora'
+        ]
+        
+        X = np.array([[
+            features.get('tiempo_respuesta', 0),
+            features.get('errores_ortograficos', 0),
+            features.get('repeticiones', 0),
+            features.get('comprension_lectora', 0)
+        ]])
+        
+        # Escalar datos
+        X_scaled = self.scaler.transform(X)
         
         # Realizar predicción
-        prediction_proba = model.predict_proba(features)[0]
-        prediction = prediction_proba[1] > 0.5
-        confidence = prediction_proba[1] if prediction else prediction_proba[0]
+        try:
+            probabilidad = self.model.predict_proba(X_scaled)[0]
+            prediccion = self.model.predict(X_scaled)[0]
+            
+            return {
+                'prediccion': bool(prediccion),
+                'probabilidad': float(max(probabilidad)),
+                'features_utilizados': {
+                    name: float(value) for name, value in zip(feature_names, X[0])
+                }
+            }
+        except Exception as e:
+            return {
+                'error': f"Error en la predicción: {str(e)}",
+                'prediccion': False,
+                'probabilidad': 0.0
+            }
+            
+    def entrenar_modelo(self, X_train, y_train):
+        """Entrena o actualiza el modelo con nuevos datos"""
+        # Escalar datos
+        X_train_scaled = self.scaler.fit_transform(X_train)
         
-        return bool(prediction), float(confidence)
+        # Entrenar modelo
+        self.model.fit(X_train_scaled, y_train)
         
-    except Exception as e:
-        print(f"Error en la predicción: {str(e)}")
-        return False, 0.0 
+        # Guardar modelo
+        model_path = os.path.join(os.path.dirname(__file__), '..', 'model_dislexia.pkl')
+        joblib.dump(self.model, model_path)
+        
+        return {
+            'mensaje': 'Modelo entrenado y guardado exitosamente',
+            'ruta_modelo': model_path
+        }
+
+    def evaluar_ejercicio(self, tipo, datos):
+        """
+        Evalúa los datos del ejercicio usando el modelo de ML
+        """
+        # Por ahora retornamos una predicción simulada
+        # TODO: Implementar el modelo real de ML
+        return {
+            'prediccion': 0.85,  # Probabilidad de dislexia
+            'confianza': 0.89    # Confianza en la predicción
+        }
+
+ml_service = MLService() 
