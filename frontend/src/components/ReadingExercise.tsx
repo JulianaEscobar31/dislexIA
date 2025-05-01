@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
-import AudioRecorder from './AudioRecorder';
-import ResultsView from './ResultsView';
+import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface ReadingExerciseProps {
   text: string;
@@ -9,144 +8,116 @@ interface ReadingExerciseProps {
 
 const ReadingExercise: React.FC<ReadingExerciseProps> = ({ text, onComplete }) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [hasRecorded, setHasRecorded] = useState(false);
-  const [showText, setShowText] = useState(false);
-  const [step, setStep] = useState(1);
-  const [results, setResults] = useState<any>(null);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const navigate = useNavigate();
 
-  const handleStartRecording = () => {
-    setShowText(true);
-    setIsRecording(true);
-    setStep(2);
-  };
-
-  const handleRecordingComplete = async (audioBlob: Blob) => {
-    setHasRecorded(true);
-    setIsRecording(false);
-    setStep(3);
-
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.wav');
-
+  const startRecording = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/audio/procesar', {
-        method: 'POST',
-        body: formData,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const audioChunks: BlobPart[] = [];
 
-      const data = await response.json();
-      setResults(data);
-      onComplete(data);
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        // Aquí enviarías el audio al backend para su análisis
+        onComplete({
+          audioUrl,
+          timeElapsed,
+          // Otros datos relevantes
+        });
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsRecording(true);
+      setHasStarted(true);
+
+      // Iniciar el temporizador
+      timerRef.current = window.setInterval(() => {
+        setTimeElapsed(prev => prev + 1);
+      }, 1000);
+
     } catch (error) {
-      console.error('Error al procesar el audio:', error);
-      setResults({ error: 'Error al procesar el audio. Por favor, intenta nuevamente.' });
+      console.error('Error al acceder al micrófono:', error);
+      alert('No se pudo acceder al micrófono. Por favor, verifica los permisos.');
     }
   };
 
-  const resetExercise = () => {
-    setShowText(false);
-    setHasRecorded(false);
-    setIsRecording(false);
-    setStep(1);
-    setResults(null);
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      setIsRecording(false);
+      
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+      }
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          {/* Encabezado */}
-          <div className="bg-primary-600 px-6 py-4">
-            <h2 className="text-2xl font-bold text-white">
-              Ejercicio de Lectura
-            </h2>
-          </div>
+    <div className="container mx-auto px-4 py-8 max-w-3xl">
+      <h1 className="text-3xl font-bold text-gray-800 mb-6">
+        Ejercicio de Lectura
+      </h1>
 
-          {/* Contenido principal */}
-          <div className="p-6">
-            {/* Indicador de progreso */}
-            <div className="mb-8">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex space-x-2">
-                  {[1, 2, 3].map((stepNumber) => (
-                    <div
-                      key={stepNumber}
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        step >= stepNumber
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-gray-200 text-gray-600'
-                      }`}
-                    >
-                      {stepNumber}
-                    </div>
-                  ))}
-                </div>
-                <span className="text-sm text-gray-500">
-                  Paso {step} de 3
-                </span>
-              </div>
-            </div>
-
-            {/* Instrucciones iniciales */}
-            {step === 1 && (
-              <div className="space-y-6">
-                <div className="bg-primary-50 p-4 rounded-lg">
-                  <h3 className="text-lg font-semibold text-primary-800 mb-2">
-                    Instrucciones:
-                  </h3>
-                  <ol className="list-decimal list-inside space-y-2 text-primary-700">
-                    <li>Cuando estés listo, presiona "Comenzar Ejercicio"</li>
-                    <li>Lee el texto que aparecerá en voz alta y clara</li>
-                    <li>La grabación comenzará automáticamente</li>
-                    <li>Al terminar, presiona "Detener Grabación"</li>
-                  </ol>
-                </div>
-                <button
-                  onClick={handleStartRecording}
-                  className="w-full py-3 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium"
-                >
-                  Comenzar Ejercicio
-                </button>
-              </div>
-            )}
-
-            {/* Texto para leer y grabación */}
-            {showText && !hasRecorded && (
-              <div className="space-y-6">
-                <div className={`transition-all duration-500 ${
-                  isRecording ? 'bg-white' : 'bg-gray-50'
-                } p-6 rounded-lg border-2 ${
-                  isRecording ? 'border-primary-500' : 'border-gray-200'
-                }`}>
-                  <p className="text-lg leading-relaxed text-gray-800 font-serif">
-                    {text}
-                  </p>
-                </div>
-
-                <div className="mt-6">
-                  <AudioRecorder
-                    onRecordingComplete={handleRecordingComplete}
-                    onStartRecording={() => setIsRecording(true)}
-                    onStopRecording={() => setIsRecording(false)}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Resultados */}
-            {results && (
-              <div>
-                <ResultsView results={results} />
-                <button
-                  onClick={resetExercise}
-                  className="mt-6 w-full py-2 px-4 border border-primary-500 text-primary-600 rounded-lg hover:bg-primary-50 transition-colors"
-                >
-                  Realizar otro intento
-                </button>
-              </div>
-            )}
-          </div>
+      <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
+        <div className="mb-6">
+          <h2 className="text-xl font-semibold text-gray-700 mb-4">
+            Instrucciones
+          </h2>
+          <p className="text-gray-600">
+            Lee el siguiente texto en voz alta y clara. Presiona "Comenzar" cuando estés listo 
+            para empezar la grabación y "Terminar" cuando hayas terminado de leer.
+          </p>
         </div>
+
+        <div className="bg-gray-50 p-6 rounded-md mb-6">
+          <p className="text-lg leading-relaxed whitespace-pre-line">
+            {text}
+          </p>
+        </div>
+
+        <div className="flex justify-between items-center">
+          <div className="text-gray-600">
+            Tiempo: {Math.floor(timeElapsed / 60)}:{(timeElapsed % 60).toString().padStart(2, '0')}
+          </div>
+          
+          {!hasStarted ? (
+            <button
+              onClick={startRecording}
+              className="bg-green-500 text-white px-6 py-2 rounded-md hover:bg-green-600 transition-colors"
+            >
+              Comenzar
+            </button>
+          ) : (
+            <button
+              onClick={stopRecording}
+              className="bg-red-500 text-white px-6 py-2 rounded-md hover:bg-red-600 transition-colors"
+              disabled={!isRecording}
+            >
+              Terminar
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-between">
+        <button
+          onClick={() => navigate('/')}
+          className="text-gray-600 hover:text-gray-800"
+        >
+          ← Volver al inicio
+        </button>
       </div>
     </div>
   );

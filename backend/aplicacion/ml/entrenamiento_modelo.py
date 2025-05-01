@@ -25,10 +25,10 @@ def entrenar_modelo(X_train, y_train):
         # Escalar los datos
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
-        
+
         # Entrenar el modelo
         modelo.fit(X_train_scaled, y_train)
-        
+
         # Guardar el modelo y el scaler
         model_path = os.path.join(os.path.dirname(__file__), 'modelo_dislexia.pkl')
         scaler_path = os.path.join(os.path.dirname(__file__), 'scaler.pkl')

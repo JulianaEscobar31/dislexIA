@@ -1,134 +1,129 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Button, Typography, Paper, CircularProgress } from '@mui/material';
-import MicIcon from '@mui/icons-material/Mic';
-import StopIcon from '@mui/icons-material/Stop';
+import { Box, Typography, Button, Paper, CircularProgress, Alert } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import AudioRecorder from './AudioRecorder';
 
 const LecturaEjercicio = () => {
     const [texto, setTexto] = useState('');
     const [grabando, setGrabando] = useState(false);
-    const [mediaRecorder, setMediaRecorder] = useState(null);
-    const [resultado, setResultado] = useState(null);
+    const [audioBlob, setAudioBlob] = useState(null);
     const [cargando, setCargando] = useState(false);
+    const [error, setError] = useState(null);
+    const navigate = useNavigate();
 
     useEffect(() => {
-        // Obtener el texto de ejemplo al cargar el componente
-        fetch('http://localhost:5000/api/texto-ejemplo')
-            .then(response => response.json())
-            .then(data => setTexto(data.texto))
-            .catch(error => console.error('Error al obtener el texto:', error));
+        const obtenerTexto = async () => {
+            try {
+                const response = await axios.get('http://localhost:5000/api/v1/ejercicios/lectura');
+                setTexto(response.data.texto);
+            } catch (error) {
+                console.error('Error al obtener el texto:', error);
+                // Texto por defecto mientras se desarrolla el backend
+                setTexto(`En un pequeño pueblo costero, María descubrió su pasión por la fotografía mientras documentaba la vida cotidiana de los pescadores locales. Cada mañana, cuando el sol apenas comenzaba a asomarse por el horizonte, ella capturaba imágenes de los botes multicolores mecidos por las suaves olas del mar. Los pescadores, con sus rostros curtidos por el sol y el salitre, le contaban historias fascinantes sobre sus aventuras en alta mar.`);
+                setError('No se pudo conectar con el servidor. Usando texto de prueba.');
+            }
+        };
+        obtenerTexto();
     }, []);
 
-    const iniciarGrabacion = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream);
-            const chunks = [];
-
-            recorder.ondataavailable = (e) => chunks.push(e.data);
-            recorder.onstop = async () => {
-                const audioBlob = new Blob(chunks, { type: 'audio/wav' });
-                await enviarAudio(audioBlob);
-            };
-
-            recorder.start();
-            setMediaRecorder(recorder);
-            setGrabando(true);
-        } catch (error) {
-            console.error('Error al iniciar la grabación:', error);
-            alert('Error al acceder al micrófono. Por favor, asegúrate de dar permiso para usar el micrófono.');
-        }
+    const manejarInicioGrabacion = () => {
+        setGrabando(true);
+        setError(null);
     };
 
-    const detenerGrabacion = () => {
-        if (mediaRecorder && mediaRecorder.state === 'recording') {
-            mediaRecorder.stop();
-            setGrabando(false);
-        }
-    };
-
-    const enviarAudio = async (audioBlob) => {
+    const manejarFinGrabacion = async (blob) => {
+        setAudioBlob(blob);
+        setGrabando(false);
         setCargando(true);
+
         const formData = new FormData();
-        formData.append('audio', audioBlob);
+        formData.append('audio', blob, 'grabacion.wav');
+        formData.append('texto', texto);
 
         try {
-            const response = await fetch('http://localhost:5000/api/audio/procesar', {
-                method: 'POST',
-                body: formData,
+            const response = await axios.post(
+                'http://localhost:5000/api/v1/ejercicios/lectura/evaluar',
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data',
+                    },
+                }
+            );
+            
+            navigate('/resultados', { 
+                state: { 
+                    resultados: response.data,
+                    tipo: 'lectura'
+                }
             });
-            const data = await response.json();
-            setResultado(data);
         } catch (error) {
-            console.error('Error al procesar el audio:', error);
-            alert('Error al procesar el audio. Por favor, intenta de nuevo.');
+            console.error('Error al enviar el audio:', error);
+            setError('Error al procesar el audio. Por favor, intente nuevamente.');
         } finally {
             setCargando(false);
         }
     };
 
     return (
-        <Box sx={{ maxWidth: 800, margin: 'auto', padding: 3 }}>
-            <Typography variant="h4" gutterBottom>
-                Ejercicio de Lectura
-            </Typography>
-
+        <Box sx={{ maxWidth: 800, margin: 'auto', padding: 4 }}>
             <Paper elevation={3} sx={{ padding: 3, marginBottom: 3 }}>
-                <Typography variant="h6" gutterBottom>
-                    Instrucciones
+                <Typography variant="h4" gutterBottom>
+                    Ejercicio de Lectura
                 </Typography>
-                <Typography paragraph>
-                    Por favor, lee el siguiente texto en voz alta y clara:
+                
+                {error && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        {error}
+                    </Alert>
+                )}
+
+                <Typography variant="body1" paragraph>
+                    Por favor, lea el siguiente texto en voz alta:
                 </Typography>
                 <Typography 
-                    paragraph 
+                    variant="body1" 
+                    className="readable-text"
                     sx={{ 
                         backgroundColor: '#f5f5f5',
                         padding: 2,
                         borderRadius: 1,
-                        fontWeight: 'medium'
+                        marginBottom: 3,
+                        fontFamily: "'Georgia', serif",
+                        fontSize: '1.2rem',
+                        lineHeight: '1.8'
                     }}
                 >
                     {texto}
                 </Typography>
-            </Paper>
-
-            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, marginBottom: 3 }}>
-                <Button
-                    variant="contained"
-                    color={grabando ? "error" : "primary"}
-                    startIcon={grabando ? <StopIcon /> : <MicIcon />}
-                    onClick={grabando ? detenerGrabacion : iniciarGrabacion}
-                    disabled={cargando}
-                >
-                    {grabando ? "Detener Grabación" : "Iniciar Grabación"}
-                </Button>
-            </Box>
-
-            {cargando && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', marginY: 2 }}>
-                    <CircularProgress />
+                
+                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
+                    {!grabando && !audioBlob && (
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={manejarInicioGrabacion}
+                            size="large"
+                        >
+                            Comenzar Grabación
+                        </Button>
+                    )}
+                    
+                    {grabando && (
+                        <AudioRecorder
+                            onStop={manejarFinGrabacion}
+                            onStart={() => setGrabando(true)}
+                        />
+                    )}
                 </Box>
-            )}
 
-            {resultado && (
-                <Paper elevation={3} sx={{ padding: 3 }}>
-                    <Typography variant="h6" gutterBottom>
-                        Resultados
-                    </Typography>
-                    <Typography paragraph>
-                        <strong>Texto transcrito:</strong> {resultado.texto}
-                    </Typography>
-                    <Typography paragraph>
-                        <strong>Duración:</strong> {resultado.duracion.toFixed(2)} segundos
-                    </Typography>
-                    <Typography paragraph>
-                        <strong>Palabras por minuto:</strong> {resultado.palabras_por_minuto.toFixed(2)}
-                    </Typography>
-                    <Typography paragraph>
-                        <strong>Palabras totales:</strong> {resultado.palabras_totales}
-                    </Typography>
-                </Paper>
-            )}
+                {cargando && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+                        <CircularProgress />
+                    </Box>
+                )}
+            </Paper>
         </Box>
     );
 };
