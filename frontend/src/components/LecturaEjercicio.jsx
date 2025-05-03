@@ -39,7 +39,7 @@ const LecturaEjercicio = () => {
 
         const formData = new FormData();
         formData.append('audio', blob, 'grabacion.wav');
-        formData.append('texto', texto);
+        formData.append('texto_original', texto);
 
         try {
             const response = await axios.post(

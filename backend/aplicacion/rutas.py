@@ -13,7 +13,7 @@ from .servicios.servicio_ml import ServicioML
 from .servicios.servicio_evaluacion import ServicioEvaluacion
 from .ejercicios.ejercicios_lectura import EjerciciosLectura
 from .ejercicios.ejercicios_dictado import EjerciciosDictado
-from .ejercicios.ejercicios_comprension import EjerciciosComprension
+from .ejercicios.ejercicios_comprension import obtener_ejercicio, evaluar_comprension
 from .ejercicios.evaluador import Evaluador
 from .database import db
 from difflib import SequenceMatcher
@@ -70,7 +70,7 @@ ALLOWED_EXTENSIONS = {'wav', 'mp3', 'ogg', 'webm'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@rutas.route('/api/v1/ejercicios/lectura', methods=['GET'])
+@rutas.route('/v1/ejercicios/lectura', methods=['GET'])
 def obtener_texto_lectura():
     """Endpoint para obtener un texto aleatorio para el ejercicio de lectura"""
     texto = random.choice(TEXTOS_POR_NIVEL['principiante'])
@@ -78,31 +78,45 @@ def obtener_texto_lectura():
         'texto': texto
     })
 
-@rutas.route('/api/v1/ejercicios/dictado', methods=['GET'])
+@rutas.route('/v1/ejercicios/dictado', methods=['GET'])
 def obtener_audio_dictado():
-    """Endpoint para obtener el audio para el ejercicio de dictado"""
+    """Endpoint para obtener el audio para el ejercicio de dictado con palabras aleatorias y pausas de 5 segundos"""
     try:
-        # Seleccionar un texto aleatorio para el dictado
-        texto = random.choice(DICTADOS_POR_NIVEL['principiante'])
-        
-        # Crear el archivo de audio usando gTTS
-        tts = gTTS(text=texto, lang='es')
-        
-        # Guardar el audio temporalmente
-        temp_audio_path = os.path.join(TEMP_FOLDER, 'dictado_temp.mp3')
-        tts.save(temp_audio_path)
-        
-        # Enviar el archivo de audio
+        # Lista de palabras base (puedes personalizar o ampliar)
+        palabras_base = [
+            "biotecnología", "sostenibilidad", "paradigma", "correlación", "metodología",
+            "hipótesis", "diagnóstico", "neurocientífico", "epistemológico", "interdisciplinario",
+            "socioeconómico", "gubernamental", "antropológico", "psicopedagógico", "biodiversidad",
+            "fotosíntesis", "ecosistema", "metamorfosis", "fenómeno", "simbiosis"
+        ]
+        # Seleccionar aleatoriamente 7 palabras
+        palabras = random.sample(palabras_base, 7)
+        # Generar audios individuales y concatenar con pausas de 5 segundos
+        audios = []
+        for palabra in palabras:
+            tts = gTTS(text=palabra, lang='es')
+            temp_audio_path = os.path.join(TEMP_FOLDER, f'{palabra}_temp.mp3')
+            tts.save(temp_audio_path)
+            audio_segment = AudioSegment.from_file(temp_audio_path)
+            audios.append(audio_segment)
+            # Agregar 5 segundos de silencio después de cada palabra (excepto la última)
+            if palabra != palabras[-1]:
+                audios.append(AudioSegment.silent(duration=5000))
+            os.remove(temp_audio_path)
+        audio_final = sum(audios)
+        audio_path = os.path.join(TEMP_FOLDER, 'dictado_palabras.mp3')
+        audio_final.export(audio_path, format='mp3')
         return send_file(
-            temp_audio_path,
+            audio_path,
             mimetype='audio/mp3',
             as_attachment=True,
-            download_name='dictado.mp3'
-        )
+            download_name='dictado_palabras.mp3'
+        ), 200, {"X-Palabras-Dictado": ",".join(palabras)}
     except Exception as e:
+        print(f"Error al generar audio de dictado: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@rutas.route('/api/v1/ejercicios/dictado/evaluar', methods=['POST'])
+@rutas.route('/v1/ejercicios/dictado/evaluar', methods=['POST'])
 def evaluar_dictado():
     """Endpoint para evaluar la respuesta del ejercicio de dictado"""
     try:
@@ -112,23 +126,21 @@ def evaluar_dictado():
         if not texto_usuario:
             return jsonify({'error': 'No se proporcionó texto'}), 400
         
-        # Por ahora, comparamos con un texto fijo (esto deberá mejorarse)
-        texto_original = DICTADOS_POR_NIVEL['principiante'][0]
+        texto_original = data.get('texto_original', '').strip()
+        if not texto_original:
+            return jsonify({'error': 'No se proporcionó el texto original'}), 400
         
-        # Calcular similitud
         similitud = calcular_similitud_texto(texto_original, texto_usuario)
-        
-        # Analizar errores
         errores = analizar_errores_dislexia(texto_original, texto_usuario)
-        
-        # Calcular puntuación (0-100)
         puntuacion = similitud * 100
         
         return jsonify({
             'puntuacion_general': round(puntuacion, 1),
             'precision': round(similitud * 100, 1),
-            'fluidez': 85.0,  # Valor ejemplo
-            'comprension': 90.0,  # Valor ejemplo
+            'fluidez': 85.0,
+            'comprension': 90.0,
+            'palabras_usuario': texto_usuario.split(),
+            'palabras_correctas': texto_original.split(),
             'detalles_analisis': [
                 {
                     'descripcion': 'Precisión en la escritura',
@@ -136,7 +148,7 @@ def evaluar_dictado():
                 },
                 {
                     'descripcion': 'Uso correcto de signos de puntuación',
-                    'cumplido': True  # Ejemplo
+                    'cumplido': True
                 }
             ],
             'recomendaciones': [
@@ -147,54 +159,231 @@ def evaluar_dictado():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@rutas.route('/api/v1/ejercicios/lectura/evaluar', methods=['POST'])
-def evaluar_lectura():
-    """Endpoint para evaluar el ejercicio de lectura"""
+@rutas.route('/v1/ejercicios/lectura/evaluar', methods=['POST'])
+def procesar_audio():
     if 'audio' not in request.files:
         return jsonify({'error': 'No se encontró el archivo de audio'}), 400
-    
+
     audio_file = request.files['audio']
-    texto = request.form.get('texto')
-    
+    texto_original = request.form.get('texto_original')
+    nivel_actual = request.form.get('nivel_actual', 'principiante')
+
     if audio_file.filename == '':
         return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
-    
-    if not texto:
-        return jsonify({'error': 'No se proporcionó el texto'}), 400
-    
+
+    if not texto_original:
+        return jsonify({'error': 'No se proporcionó el texto original'}), 400
+
+    if not allowed_file(audio_file.filename):
+        return jsonify({'error': f'Tipo de archivo no permitido. Formatos permitidos: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
+
+    temp_file = None
+    wav_path = None
     try:
-        # Guardar el archivo temporal
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.webm')
         audio_file.save(temp_file.name)
-        
-        # Procesar el audio (aquí iría la lógica real de procesamiento)
-        # Por ahora devolvemos datos de ejemplo
+        temp_file.close()
+
+        audio = AudioSegment.from_file(temp_file.name)
+        wav_path = temp_file.name.replace('.webm', '.wav')
+        audio.export(wav_path, format='wav')
+
+        data, sample_rate = sf.read(wav_path)
+        duration = len(data) / sample_rate
+        intensity = np.abs(data).mean()
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            texto_transcrito = recognizer.recognize_google(audio_data, language='es-ES')
+
+        similitud = calcular_similitud_texto(texto_original, texto_transcrito)
+        errores = analizar_errores_dislexia(texto_original, texto_transcrito)
+        palabras = len(texto_transcrito.split())
+        wpm = (palabras / duration) * 60
+
+        total_errores = sum(errores.values())
+        palabras_totales = len(texto_original.split())
+        ratio_errores = total_errores / palabras_totales if palabras_totales > 0 else 1
+
+        puntuacion = (
+            (similitud * 40) +
+            (min(wpm/150, 1) * 30) +
+            (max(0, 1 - ratio_errores) * 30)
+        )
+
+        siguiente_nivel = determinar_siguiente_nivel(nivel_actual, puntuacion, errores)
+        siguiente_texto = random.choice(TEXTOS_POR_NIVEL[siguiente_nivel])
+
+        precision = round(similitud * 100, 1)
+        fluidez = round(min(wpm / 150, 1) * 100, 1)
+        comprension = 100.0  # Valor por defecto, puedes ajustarlo si tienes una métrica real
+        recomendaciones = [
+            r for r in [
+                "Practica la lectura en voz alta diariamente" if wpm < 100 else None,
+                "Enfócate en la precisión de la lectura" if similitud < 0.8 else None,
+                "Presta atención a las inversiones de letras" if errores['inversiones'] > 0 else None,
+                "Cuida no omitir letras al leer" if errores['omisiones'] > 2 else None,
+                "Intenta mantener un ritmo constante de lectura" if errores['adiciones'] > 2 else None
+            ] if r
+        ]
+        mensajes_positivos = [
+            "¡Excelente trabajo! Sigue practicando para mantener tu nivel.",
+            "Tu lectura fue clara y precisa. ¡Sigue así!"
+        ]
+        while len(recomendaciones) < 2:
+            recomendaciones.append(mensajes_positivos[len(recomendaciones) % len(mensajes_positivos)])
+
+        detalles_analisis = [
+            {
+                'descripcion': 'Precisión en la lectura',
+                'cumplido': precision > 80
+            },
+            {
+                'descripcion': 'Fluidez adecuada',
+                'cumplido': fluidez > 70
+            },
+            {
+                'descripcion': 'Comprensión lectora',
+                'cumplido': comprension > 80
+            }
+        ]
+        if not any(d['cumplido'] for d in detalles_analisis):
+            detalles_analisis.append({
+                'descripcion': '¡Buen trabajo! No se detectaron problemas significativos en tu lectura.',
+                'cumplido': True
+            })
+
         return jsonify({
-            'puntuacion_general': 85.5,
-            'precision': 88.0,
-            'fluidez': 82.0,
-            'comprension': 86.0,
-            'detalles_analisis': [
-                {
-                    'descripcion': 'Pronunciación clara',
-                    'cumplido': True
-                },
-                {
-                    'descripcion': 'Velocidad de lectura adecuada',
-                    'cumplido': True
-                }
-            ],
-            'recomendaciones': [
-                'Practique la pronunciación de palabras largas',
-                'Mantenga un ritmo constante durante la lectura'
-            ]
+            'texto_original': texto_original,
+            'texto_transcrito': texto_transcrito,
+            'duracion': duration,
+            'palabras_por_minuto': wpm,
+            'palabras_totales': palabras,
+            'precision_lectura': precision,
+            'precision': precision,
+            'fluidez': fluidez,
+            'comprension': comprension,
+            'errores_detectados': errores,
+            'adiciones': errores.get('adiciones', 0),
+            'omisiones': errores.get('omisiones', 0),
+            'puntuacion_general': min(max(puntuacion, 0), 100),
+            'intensidad_voz': float(intensity),
+            'siguiente_nivel': siguiente_nivel,
+            'siguiente_texto': siguiente_texto,
+            'recomendaciones': recomendaciones,
+            'detalles_analisis': detalles_analisis
         })
     except Exception as e:
+        print(f"Error al procesar el audio: {str(e)}")
         return jsonify({'error': str(e)}), 500
     finally:
-        # Limpiar archivos temporales
-        if 'temp_file' in locals():
-            os.unlink(temp_file.name)
+        try:
+            if temp_file and os.path.exists(temp_file.name):
+                os.unlink(temp_file.name)
+            if wav_path and os.path.exists(wav_path):
+                os.unlink(wav_path)
+        except Exception as e:
+            print(f"Error al eliminar archivos temporales: {str(e)}")
+            pass
+
+@rutas.route('/health', methods=['GET'])
+def health_check():
+    """Endpoint para verificar el estado del servicio"""
+    return jsonify({'estado': 'ok'})
+
+@rutas.route('/dictado/obtener', methods=['GET'])
+def obtener_dictado():
+    """Endpoint para obtener un ejercicio de dictado"""
+    nivel = request.args.get('nivel', 'principiante')
+    if nivel not in DICTADOS_POR_NIVEL:
+        nivel = 'principiante'
+    
+    texto = random.choice(DICTADOS_POR_NIVEL[nivel])
+    
+    try:
+        tts = gTTS(text=texto, lang='es')
+        audio_path = os.path.join(TEMP_FOLDER, f'dictado_{hash(texto)}.mp3')
+        tts.save(audio_path)
+        
+        return jsonify({
+            'texto': texto,
+            'audio_url': f'/audio/dictado_{hash(texto)}.mp3',
+            'nivel': nivel
+        })
+    except Exception as e:
+        print(f"Error al generar audio: {str(e)}")
+        return jsonify({'error': 'Error al generar el audio'}), 500
+
+@rutas.route('/dictado/verificar', methods=['POST'])
+def verificar_dictado():
+    """Endpoint para verificar un ejercicio de dictado"""
+    data = request.get_json()
+    if not data or 'texto_usuario' not in data or 'texto_original' not in data:
+        return jsonify({'error': 'Datos incompletos'}), 400
+    
+    texto_usuario = data['texto_usuario']
+    texto_original = data['texto_original']
+    nivel_actual = data.get('nivel_actual', 'principiante')
+    
+    similitud = calcular_similitud_texto(texto_original, texto_usuario)
+    errores = analizar_errores_dislexia(texto_original, texto_usuario)
+    
+    total_errores = sum(errores.values())
+    palabras_totales = len(texto_original.split())
+    ratio_errores = total_errores / palabras_totales if palabras_totales > 0 else 1
+    
+    puntuacion = (
+        (similitud * 60) +
+        (max(0, 1 - ratio_errores) * 40)
+    )
+    
+    siguiente_nivel = determinar_siguiente_nivel(nivel_actual, puntuacion, errores)
+    
+    return jsonify({
+        'puntuacion': min(max(puntuacion, 0), 100),
+        'errores': errores,
+        'siguiente_nivel': siguiente_nivel,
+        'recomendaciones': [
+            "Practica la escritura de palabras similares" if errores['sustituciones'] > 2 else None,
+            "Presta atención a los signos de puntuación" if similitud < 0.8 else None,
+            "Revisa cuidadosamente lo que escribes" if total_errores > 5 else None
+        ]
+    })
+
+@rutas.route('/v1/ejercicios/comprension', methods=['GET'])
+def obtener_ejercicio_comprension():
+    """Obtiene un ejercicio de comprensión lectora."""
+    nivel = request.args.get('nivel', 'nivel_1')
+    try:
+        ejercicio = obtener_ejercicio(nivel)
+        return jsonify(ejercicio), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@rutas.route('/v1/ejercicios/comprension/evaluar', methods=['POST'])
+def evaluar_ejercicio_comprension():
+    """Evalúa las respuestas de un ejercicio de comprensión lectora."""
+    try:
+        data = request.get_json()
+        print('Datos recibidos en /v1/ejercicios/comprension/evaluar:', data)
+        nivel = data.get('nivel')
+        respuestas = data.get('respuestas')
+        tiempo_respuesta = data.get('tiempo_respuesta', 0)
+        if not nivel:
+            print('Falta el campo nivel')
+            return jsonify({'error': 'Falta el campo nivel'}), 400
+        if respuestas is None:
+            print('Falta el campo respuestas')
+            return jsonify({'error': 'Falta el campo respuestas'}), 400
+        if not isinstance(respuestas, list):
+            print('El campo respuestas no es una lista')
+            return jsonify({'error': 'El campo respuestas debe ser una lista'}), 400
+        resultados = evaluar_comprension(nivel, respuestas, tiempo_respuesta)
+        return jsonify(resultados), 200
+    except Exception as e:
+        print('Error en /v1/ejercicios/comprension/evaluar:', str(e))
+        return jsonify({'error': str(e)}), 400
 
 def calcular_similitud_texto(texto_original, texto_transcrito):
     """Calcula la similitud entre el texto original y el transcrito"""
@@ -305,172 +494,4 @@ def determinar_siguiente_nivel(nivel_actual, puntuacion, errores):
     if (puntuacion < 60 or sum(errores.values()) > 5) and indice_actual > 0:
         return niveles[indice_actual - 1]
     
-    return nivel_actual
-
-@rutas.route('/api/audio/procesar', methods=['POST'])
-def procesar_audio():
-    if 'audio' not in request.files:
-        return jsonify({'error': 'No se encontró el archivo de audio'}), 400
-    
-    audio_file = request.files['audio']
-    texto_original = request.form.get('texto_original')
-    nivel_actual = request.form.get('nivel_actual', 'principiante')
-    
-    if audio_file.filename == '':
-        return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
-    
-    if not texto_original:
-        return jsonify({'error': 'No se proporcionó el texto original'}), 400
-    
-    if not allowed_file(audio_file.filename):
-        return jsonify({'error': f'Tipo de archivo no permitido. Formatos permitidos: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
-
-    temp_file = None
-    wav_path = None
-    try:
-        # Guardar el archivo temporal con extensión webm
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.webm')
-            audio_file.save(temp_file.name)
-        temp_file.close()  # Cerrar el archivo temporal
-        
-        # Convertir webm a wav usando pydub
-        audio = AudioSegment.from_file(temp_file.name)
-        wav_path = temp_file.name.replace('.webm', '.wav')
-        audio.export(wav_path, format='wav')
-        
-        # Procesar el archivo wav
-        data, sample_rate = sf.read(wav_path)
-            duration = len(data) / sample_rate
-            intensity = np.abs(data).mean()
-            
-            recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-                audio_data = recognizer.record(source)
-            texto_transcrito = recognizer.recognize_google(audio_data, language='es-ES')
-            
-        # Análisis de patrones
-        similitud = calcular_similitud_texto(texto_original, texto_transcrito)
-        errores = analizar_errores_dislexia(texto_original, texto_transcrito)
-        palabras = len(texto_transcrito.split())
-        wpm = (palabras / duration) * 60
-            
-        # Calcular puntuación general (0-100)
-        total_errores = sum(errores.values())
-        palabras_totales = len(texto_original.split())
-        ratio_errores = total_errores / palabras_totales if palabras_totales > 0 else 1
-        
-        puntuacion = (
-            (similitud * 40) +  # Precisión de lectura: 40%
-            (min(wpm/150, 1) * 30) +  # Velocidad de lectura: 30%
-            (max(0, 1 - ratio_errores) * 30)  # Errores: 30%
-        )
-
-        # Determinar el siguiente nivel
-        siguiente_nivel = determinar_siguiente_nivel(nivel_actual, puntuacion, errores)
-        
-        # Seleccionar el siguiente texto basado en el nuevo nivel
-        siguiente_texto = random.choice(TEXTOS_POR_NIVEL[siguiente_nivel])
-    
-    return jsonify({
-            'texto_original': texto_original,
-            'texto_transcrito': texto_transcrito,
-                'duracion': duration,
-                'palabras_por_minuto': wpm,
-            'palabras_totales': palabras,
-            'precision_lectura': similitud * 100,
-            'errores_detectados': errores,
-            'puntuacion_general': min(max(puntuacion, 0), 100),
-            'intensidad_voz': float(intensity),
-            'siguiente_nivel': siguiente_nivel,
-            'siguiente_texto': siguiente_texto,
-            'recomendaciones': [
-                "Practica la lectura en voz alta diariamente" if wpm < 100 else None,
-                "Enfócate en la precisión de la lectura" if similitud < 0.8 else None,
-                "Presta atención a las inversiones de letras" if errores['inversiones'] > 0 else None,
-                "Cuida no omitir letras al leer" if errores['omisiones'] > 2 else None,
-                "Intenta mantener un ritmo constante de lectura" if errores['adiciones'] > 2 else None
-            ]
-            })
-            
-    except Exception as e:
-        print(f"Error al procesar el audio: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-    finally:
-        # Limpiar archivos temporales
-        try:
-            if temp_file and os.path.exists(temp_file.name):
-                os.close(temp_file.fileno())  # Cerrar el descriptor de archivo
-                os.unlink(temp_file.name)
-            if wav_path and os.path.exists(wav_path):
-                os.unlink(wav_path)
-        except Exception as e:
-            print(f"Error al eliminar archivos temporales: {str(e)}")
-            pass
-
-@rutas.route('/api/health', methods=['GET'])
-def health_check():
-    """Endpoint para verificar el estado del servicio"""
-    return jsonify({'estado': 'ok'})
-
-@rutas.route('/api/dictado/obtener', methods=['GET'])
-def obtener_dictado():
-    """Endpoint para obtener un ejercicio de dictado"""
-    nivel = request.args.get('nivel', 'principiante')
-    if nivel not in DICTADOS_POR_NIVEL:
-        nivel = 'principiante'
-    
-    texto = random.choice(DICTADOS_POR_NIVEL[nivel])
-    
-    # Generar audio del texto
-    try:
-        tts = gTTS(text=texto, lang='es')
-        audio_path = os.path.join(TEMP_FOLDER, f'dictado_{hash(texto)}.mp3')
-        tts.save(audio_path)
-        
-        return jsonify({
-            'texto': texto,
-            'audio_url': f'/audio/dictado_{hash(texto)}.mp3',
-            'nivel': nivel
-        })
-    except Exception as e:
-        print(f"Error al generar audio: {str(e)}")
-        return jsonify({'error': 'Error al generar el audio'}), 500
-
-@rutas.route('/api/dictado/verificar', methods=['POST'])
-def verificar_dictado():
-    """Endpoint para verificar un ejercicio de dictado"""
-    data = request.get_json()
-    if not data or 'texto_usuario' not in data or 'texto_original' not in data:
-        return jsonify({'error': 'Datos incompletos'}), 400
-    
-    texto_usuario = data['texto_usuario']
-    texto_original = data['texto_original']
-    nivel_actual = data.get('nivel_actual', 'principiante')
-    
-    # Analizar errores
-    similitud = calcular_similitud_texto(texto_original, texto_usuario)
-    errores = analizar_errores_dislexia(texto_original, texto_usuario)
-    
-    # Calcular puntuación
-    total_errores = sum(errores.values())
-    palabras_totales = len(texto_original.split())
-    ratio_errores = total_errores / palabras_totales if palabras_totales > 0 else 1
-    
-    puntuacion = (
-        (similitud * 60) +  # Precisión: 60%
-        (max(0, 1 - ratio_errores) * 40)  # Errores: 40%
-    )
-    
-    # Determinar siguiente nivel
-    siguiente_nivel = determinar_siguiente_nivel(nivel_actual, puntuacion, errores)
-    
-    return jsonify({
-        'puntuacion': min(max(puntuacion, 0), 100),
-        'errores': errores,
-        'siguiente_nivel': siguiente_nivel,
-        'recomendaciones': [
-            "Practica la escritura de palabras similares" if errores['sustituciones'] > 2 else None,
-            "Presta atención a los signos de puntuación" if similitud < 0.8 else None,
-            "Revisa cuidadosamente lo que escribes" if total_errores > 5 else None
-        ]
-    }) 
+    return nivel_actual 

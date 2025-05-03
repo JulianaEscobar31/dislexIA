@@ -16,6 +16,7 @@ import {
 import LecturaEjercicio from './components/LecturaEjercicio';
 import DictadoEjercicio from './components/DictadoEjercicio';
 import ResultadosView from './components/ResultadosView';
+import ComprensionEjercicio from './components/ComprensionEjercicio';
 import './App.css'
 
 const Home = () => {
@@ -30,7 +31,7 @@ const Home = () => {
       </Typography>
 
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
           <Card elevation={3}>
             <CardContent>
               <Typography variant="h5" gutterBottom>
@@ -54,7 +55,7 @@ const Home = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
           <Card elevation={3}>
             <CardContent>
               <Typography variant="h5" gutterBottom>
@@ -73,6 +74,29 @@ const Home = () => {
                 fullWidth
               >
                 Comenzar Ejercicio de Dictado
+              </Button>
+            </CardActions>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Card elevation={3}>
+            <CardContent>
+              <Typography variant="h5" gutterBottom>
+                Comprensión Lectora
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                Lee un texto y responde preguntas para evaluar tu comprensión y retención de información.
+              </Typography>
+            </CardContent>
+            <CardActions>
+              <Button 
+                component={Link} 
+                to="/comprension" 
+                variant="contained" 
+                fullWidth
+              >
+                Comenzar Ejercicio de Comprensión
               </Button>
             </CardActions>
           </Card>
@@ -124,6 +148,7 @@ const App = () => {
             <Route path="/" element={<Home />} />
             <Route path="/lectura" element={<LecturaEjercicio />} />
             <Route path="/dictado" element={<DictadoEjercicio />} />
+            <Route path="/comprension" element={<ComprensionEjercicio />} />
             <Route path="/resultados" element={<ResultadosView />} />
           </Routes>
         </Box>

@@ -43,7 +43,7 @@ code {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
+}
 }
 
 .visually-hidden {
@@ -164,7 +164,7 @@ code {
   background-color: #e3f2fd;
   color: var(--info-color);
   border: 1px solid var(--info-color);
-}
+  }
 
 /* Estilos para dispositivos móviles */
 @media (max-width: 600px) {

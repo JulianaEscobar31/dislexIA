@@ -57,16 +57,17 @@ const ResultadosView = () => {
     );
   }
 
+  // Asegurar que los datos del gráfico sean números válidos
+  const precision = Number(resultados.precision) || 0;
+  const fluidez = Number(resultados.fluidez) || 0;
+  const comprension = Number(resultados.comprension) || 0;
+
   const datosGrafica = {
     labels: ['Precisión', 'Fluidez', 'Comprensión'],
     datasets: [
       {
         label: 'Puntuación',
-        data: [
-          resultados.precision || 0,
-          resultados.fluidez || 0,
-          resultados.comprension || 0
-        ],
+        data: [precision, fluidez, comprension],
         backgroundColor: [
           'rgba(54, 162, 235, 0.6)',
           'rgba(75, 192, 192, 0.6)',
@@ -104,27 +105,109 @@ const ResultadosView = () => {
     }
   };
 
+  // Filtrar recomendaciones válidas
+  const recomendacionesValidas = (resultados.recomendaciones || []).filter(r => r && r.trim() !== '');
+
+  // Obtener palabras correctas y del usuario desde location.state o resultados
+  const palabrasUsuario = (location.state?.palabras_usuario && location.state.palabras_usuario.length > 0)
+    ? location.state.palabras_usuario
+    : (resultados.palabras_usuario || []);
+  const palabrasCorrectas = (location.state?.palabras_correctas && location.state.palabras_correctas.length > 0)
+    ? location.state.palabras_correctas
+    : (resultados.palabras_correctas || []);
+
   return (
     <Box sx={{ maxWidth: 800, margin: 'auto', padding: 4 }}>
       <Paper elevation={3} sx={{ padding: 3, marginBottom: 3 }}>
         <Typography variant="h4" gutterBottom>
-          Resultados del Ejercicio de {tipo === 'lectura' ? 'Lectura' : 'Dictado'}
+          {tipo === 'lectura' && 'Resultados del Ejercicio de Lectura'}
+          {tipo === 'dictado' && 'Resultados del Ejercicio de Dictado'}
+          {tipo === 'comprension' && 'Resultados del Ejercicio de Comprensión Lectora'}
         </Typography>
 
         <Box sx={{ marginY: 4 }}>
-          <Typography variant="h6" gutterBottom>
-            Puntuación General: {resultados.puntuacion_general}%
-          </Typography>
-          <LinearProgress 
-            variant="determinate" 
-            value={resultados.puntuacion_general} 
-            sx={{ height: 10, borderRadius: 5 }}
-          />
+          {tipo === 'comprension' ? (
+            <>
+              <Typography variant="body1" gutterBottom>
+                Respuestas correctas: {resultados.correctas ?? 0} / {resultados.total ?? 0}
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="h6" gutterBottom>
+                Puntuación General: {Number(resultados.puntuacion_general).toFixed(1)}%
+              </Typography>
+              <LinearProgress 
+                variant="determinate" 
+                value={Number(resultados.puntuacion_general)} 
+                sx={{ height: 10, borderRadius: 5 }}
+              />
+            </>
+          )}
         </Box>
 
-        <Box sx={{ height: 300, marginY: 4 }}>
-          <Bar data={datosGrafica} options={opcionesGrafica} />
-        </Box>
+        {/* Mostrar texto original y transcrito si existen */}
+        {resultados.texto_original && resultados.texto_transcrito && (
+          <Box sx={{ marginY: 4 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              <b>Texto Original:</b>
+            </Typography>
+            <Paper sx={{ padding: 2, backgroundColor: '#f5f5f5', marginBottom: 2 }}>
+              <Typography variant="body1" sx={{ fontFamily: 'Georgia, serif' }}>
+                {resultados.texto_original}
+              </Typography>
+            </Paper>
+            <Typography variant="subtitle1" gutterBottom>
+              <b>Texto Leído (Transcrito):</b>
+            </Typography>
+            <Paper sx={{ padding: 2, backgroundColor: '#f5f5f5' }}>
+              <Typography variant="body1" sx={{ fontFamily: 'Georgia, serif' }}>
+                {resultados.texto_transcrito}
+              </Typography>
+            </Paper>
+          </Box>
+        )}
+
+        {/* Mostrar texto original y transcrito si existen */}
+        {tipo === 'dictado' && palabrasUsuario.length > 0 && palabrasCorrectas.length > 0 && (
+          <Box sx={{ marginY: 4 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              <b>Comparación de Palabras:</b>
+            </Typography>
+            <Paper sx={{ padding: 2, backgroundColor: '#f5f5f5' }}>
+              <Grid container spacing={2}>
+                {palabrasCorrectas.map((palabra, index) => (
+                  <Grid item xs={12} key={index}>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      backgroundColor: palabrasUsuario[index] === palabra ? '#e8f5e9' : '#ffebee',
+                      padding: 1,
+                      borderRadius: 1
+                    }}>
+                      <Typography variant="body1" sx={{ minWidth: 100 }}>
+                        <b>Palabra {index + 1}:</b>
+                      </Typography>
+                      <Typography variant="body1" sx={{ flex: 1 }}>
+                        <b>Correcta:</b> {palabra}
+                      </Typography>
+                      <Typography variant="body1" sx={{ flex: 1 }}>
+                        <b>Tu respuesta:</b> {palabrasUsuario[index] || 'No escrita'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
+            </Paper>
+          </Box>
+        )}
+
+        {/* Mostrar gráfica solo si no es comprensión */}
+        {tipo !== 'comprension' && (
+          <Box sx={{ height: 300, marginY: 4 }}>
+            <Bar data={datosGrafica} options={opcionesGrafica} />
+          </Box>
+        )}
 
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
@@ -132,18 +215,24 @@ const ResultadosView = () => {
               Detalles del Análisis
             </Typography>
             <List>
-              {resultados.detalles_analisis?.map((detalle, index) => (
-                <ListItem key={index}>
-                  <ListItemIcon>
-                    {detalle.cumplido ? (
-                      <CheckCircleIcon color="success" />
-                    ) : (
-                      <ErrorIcon color="error" />
-                    )}
-                  </ListItemIcon>
-                  <ListItemText primary={detalle.descripcion} />
+              {tipo === 'comprension' ? (
+                <ListItem>
+                  <ListItemText primary="¡Buen trabajo! Revisa tus respuestas y sigue practicando la comprensión lectora." />
                 </ListItem>
-              ))}
+              ) : (
+                resultados.detalles_analisis?.map((detalle, index) => (
+                  <ListItem key={index}>
+                    <ListItemIcon>
+                      {detalle.cumplido ? (
+                        <CheckCircleIcon color="success" />
+                      ) : (
+                        <ErrorIcon color="error" />
+                      )}
+                    </ListItemIcon>
+                    <ListItemText primary={detalle.descripcion} />
+                  </ListItem>
+                ))
+              )}
             </List>
           </Grid>
 
@@ -152,14 +241,20 @@ const ResultadosView = () => {
               Recomendaciones
             </Typography>
             <List>
-              {resultados.recomendaciones?.map((recomendacion, index) => (
-                <ListItem key={index}>
-                  <ListItemIcon>
-                    <InfoIcon color="primary" />
-                  </ListItemIcon>
-                  <ListItemText primary={recomendacion} />
+              {recomendacionesValidas.length > 0 ? (
+                recomendacionesValidas.map((recomendacion, index) => (
+                  <ListItem key={index}>
+                    <ListItemIcon>
+                      <InfoIcon color="primary" />
+                    </ListItemIcon>
+                    <ListItemText primary={recomendacion} />
+                  </ListItem>
+                ))
+              ) : (
+                <ListItem>
+                  <ListItemText primary="No hay recomendaciones disponibles." />
                 </ListItem>
-              ))}
+              )}
             </List>
           </Grid>
         </Grid>

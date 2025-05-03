@@ -13,6 +13,7 @@ import axios from 'axios';
 
 const DictadoEjercicio = () => {
   const [audio, setAudio] = useState(null);
+  const [palabrasDictado, setPalabrasDictado] = useState([]);
   const [textoUsuario, setTextoUsuario] = useState('');
   const [reproduciendo, setReproduciendo] = useState(false);
   const [cargando, setCargando] = useState(false);
@@ -27,17 +28,17 @@ const DictadoEjercicio = () => {
           'http://localhost:5000/api/v1/ejercicios/dictado',
           { responseType: 'blob' }
         );
+        const palabrasHeader = response.headers['x-palabras-dictado'];
+        setPalabrasDictado(palabrasHeader ? palabrasHeader.split(',') : []);
         const audioBlob = new Blob([response.data], { type: 'audio/mp3' });
         setAudio(URL.createObjectURL(audioBlob));
       } catch (error) {
         console.error('Error al obtener el audio:', error);
-        // Audio por defecto mientras se desarrolla el backend
-        setAudio('/audio-ejemplo.mp3');
-        setError('No se pudo conectar con el servidor. Usando audio de prueba.');
+        setAudio(null);
+        setError('No se pudo conectar con el servidor.');
       }
     };
     obtenerAudio();
-
     return () => {
       if (audioElement) {
         audioElement.pause();
@@ -47,27 +48,24 @@ const DictadoEjercicio = () => {
         URL.revokeObjectURL(audio);
       }
     };
+    // eslint-disable-next-line
   }, []);
 
   const reproducirAudio = () => {
     if (!audio) return;
-
     if (audioElement) {
       audioElement.pause();
       audioElement.currentTime = 0;
     }
-
     const newAudioElement = new Audio(audio);
     setAudioElement(newAudioElement);
     setReproduciendo(true);
     setError(null);
-    
     newAudioElement.play().catch(error => {
       console.error('Error al reproducir el audio:', error);
       setError('Error al reproducir el audio. Por favor, intente nuevamente.');
       setReproduciendo(false);
     });
-
     newAudioElement.onended = () => {
       setReproduciendo(false);
     };
@@ -75,23 +73,29 @@ const DictadoEjercicio = () => {
 
   const enviarRespuesta = async () => {
     if (!textoUsuario.trim()) {
-      setError('Por favor, escriba el texto antes de enviar.');
+      setError('Por favor, escriba las palabras antes de enviar.');
       return;
     }
-
     setCargando(true);
     setError(null);
-
     try {
+      const palabrasUsuario = textoUsuario
+        .split(/\s+/)
+        .map(p => p.trim().toLowerCase())
+        .filter(Boolean);
       const response = await axios.post(
         'http://localhost:5000/api/v1/ejercicios/dictado/evaluar',
-        { texto_usuario: textoUsuario }
+        {
+          texto_usuario: palabrasUsuario.join(' '),
+          texto_original: palabrasDictado.join(' ')
+        }
       );
-      
       navigate('/resultados', { 
         state: { 
           resultados: response.data,
-          tipo: 'dictado'
+          tipo: 'dictado',
+          palabras_usuario: palabrasUsuario,
+          palabras_correctas: palabrasDictado
         }
       });
     } catch (error) {
@@ -114,11 +118,9 @@ const DictadoEjercicio = () => {
             {error}
           </Alert>
         )}
-        
         <Typography variant="body1" paragraph>
-          Escuche el audio y escriba el texto que escucha:
+          Escuche el audio y escriba las palabras dictadas en el orden correcto, separadas por espacio o salto de línea:
         </Typography>
-
         <Box sx={{ display: 'flex', justifyContent: 'center', marginY: 3 }}>
           <Button
             variant="contained"
@@ -130,15 +132,14 @@ const DictadoEjercicio = () => {
             {reproduciendo ? 'Reproduciendo...' : 'Reproducir Audio'}
           </Button>
         </Box>
-
         <TextField
           fullWidth
           multiline
-          rows={4}
+          rows={3}
           variant="outlined"
           value={textoUsuario}
           onChange={(e) => setTextoUsuario(e.target.value)}
-          placeholder="Escriba aquí el texto que escucha..."
+          placeholder="Escriba aquí las palabras dictadas..."
           sx={{ 
             marginY: 3,
             '& .MuiOutlinedInput-root': {
@@ -147,7 +148,6 @@ const DictadoEjercicio = () => {
             }
           }}
         />
-
         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
           <Button
             variant="contained"
@@ -159,7 +159,6 @@ const DictadoEjercicio = () => {
             Enviar Respuesta
           </Button>
         </Box>
-
         {cargando && (
           <Box sx={{ display: 'flex', justifyContent: 'center', marginTop: 3 }}>
             <CircularProgress />

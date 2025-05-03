@@ -1,7 +1,7 @@
-from fastapi import FastAPI
-from .rutas import rutas
+from flask import Blueprint
 
-app = FastAPI()
+# Crear el blueprint principal
+rutas = Blueprint('rutas', __name__)
 
-# Registrar las rutas
-app.include_router(rutas, prefix="/api")
+# Importar las rutas después de crear el blueprint
+from . import rutas
