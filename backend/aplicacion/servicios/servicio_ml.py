@@ -12,10 +12,15 @@ class ServicioML:
     def load_model(self):
         """Carga el modelo entrenado y el scaler"""
         model_path = os.path.join(os.path.dirname(__file__), '..', 'ml', 'modelo_dislexia.pkl')
+        scaler_path = os.path.join(os.path.dirname(__file__), '..', 'ml', 'scaler.pkl')
         if os.path.exists(model_path):
             self.model = joblib.load(model_path)
         else:
             raise FileNotFoundError("Modelo no encontrado")
+        if os.path.exists(scaler_path):
+            self.scaler = joblib.load(scaler_path)
+        else:
+            print("Advertencia: scaler.pkl no encontrado, se usará StandardScaler() sin entrenar. Esto puede causar errores si no se entrena primero.")
             
     def predict_dislexia(self, features):
         """Realiza una predicción usando el modelo entrenado"""

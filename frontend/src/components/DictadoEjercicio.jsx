@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Box, 
   Typography, 
@@ -18,20 +18,50 @@ const DictadoEjercicio = () => {
   const [reproduciendo, setReproduciendo] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
-  const [audioElement, setAudioElement] = useState(null);
+  const audioElementRef = useRef(null);
+  const [dictadoId, setDictadoId] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
+    const palabrasGuardadas = localStorage.getItem('palabrasDictado');
+    const dictadoIdGuardado = localStorage.getItem('dictadoId');
+    if (palabrasGuardadas && dictadoIdGuardado) {
+      setPalabrasDictado(JSON.parse(palabrasGuardadas));
+      setDictadoId(dictadoIdGuardado);
+    }
     const obtenerAudio = async () => {
       try {
-        const response = await axios.get(
-          'http://localhost:5000/api/v1/ejercicios/dictado',
-          { responseType: 'blob' }
-        );
-        const palabrasHeader = response.headers['x-palabras-dictado'];
-        setPalabrasDictado(palabrasHeader ? palabrasHeader.split(',') : []);
-        const audioBlob = new Blob([response.data], { type: 'audio/mp3' });
-        setAudio(URL.createObjectURL(audioBlob));
+        const response = await fetch('http://localhost:5000/api/v1/ejercicios/dictado');
+        if (!response.ok) {
+          setError('No se pudo conectar con el servidor.');
+          setAudio(null);
+          return;
+        }
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('audio')) {
+          const text = await response.text();
+          setError('Error del servidor: ' + text);
+          setAudio(null);
+          return;
+        }
+        const palabrasHeader = response.headers.get('x-palabras-dictado');
+        const dictadoIdHeader = response.headers.get('x-dictado-id');
+        const palabras = palabrasHeader ? palabrasHeader.split(',') : [];
+        setPalabrasDictado(palabras);
+        setDictadoId(dictadoIdHeader);
+        localStorage.setItem('palabrasDictado', JSON.stringify(palabras));
+        localStorage.setItem('dictadoId', dictadoIdHeader);
+        const audioBlob = await response.blob();
+        if (!audioBlob || audioBlob.size === 0) {
+          setError('El audio recibido está vacío o es inválido. Intente nuevamente.');
+          setAudio(null);
+          return;
+        }
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setAudio(audioUrl);
+        window.audioUrlDictado = audioUrl;
+        console.log('Para probar el audio manualmente, ejecuta en la consola:');
+        console.log('var audio = new Audio(window.audioUrlDictado); audio.play();');
       } catch (error) {
         console.error('Error al obtener el audio:', error);
         setAudio(null);
@@ -40,25 +70,30 @@ const DictadoEjercicio = () => {
     };
     obtenerAudio();
     return () => {
-      if (audioElement) {
-        audioElement.pause();
-        audioElement.src = '';
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
+        audioElementRef.current.src = '';
       }
       if (audio && audio.startsWith('blob:')) {
         URL.revokeObjectURL(audio);
       }
+      localStorage.removeItem('palabrasDictado');
+      localStorage.removeItem('dictadoId');
     };
     // eslint-disable-next-line
   }, []);
 
   const reproducirAudio = () => {
-    if (!audio) return;
-    if (audioElement) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
+    if (!audio) {
+      setError('No se pudo cargar el audio. Intente nuevamente.');
+      return;
     }
-    const newAudioElement = new Audio(audio);
-    setAudioElement(newAudioElement);
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.currentTime = 0;
+    }
+    const newAudioElement = new window.Audio(audio);
+    audioElementRef.current = newAudioElement;
     setReproduciendo(true);
     setError(null);
     newAudioElement.play().catch(error => {
@@ -76,6 +111,10 @@ const DictadoEjercicio = () => {
       setError('Por favor, escriba las palabras antes de enviar.');
       return;
     }
+    if (palabrasDictado.length === 0 || !dictadoId) {
+      setError('No se pudo obtener el dictado. Recargue la página e intente de nuevo.');
+      return;
+    }
     setCargando(true);
     setError(null);
     try {
@@ -87,9 +126,12 @@ const DictadoEjercicio = () => {
         'http://localhost:5000/api/v1/ejercicios/dictado/evaluar',
         {
           texto_usuario: palabrasUsuario.join(' '),
-          texto_original: palabrasDictado.join(' ')
+          dictado_id: dictadoId
         }
       );
+      localStorage.removeItem('palabrasDictado');
+      localStorage.removeItem('audioDictado');
+      localStorage.removeItem('dictadoId');
       navigate('/resultados', { 
         state: { 
           resultados: response.data,

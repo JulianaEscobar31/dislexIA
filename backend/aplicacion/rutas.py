@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, after_this_request
 import os
 from werkzeug.utils import secure_filename
 import speech_recognition as sr
@@ -19,6 +19,8 @@ from .database import db
 from difflib import SequenceMatcher
 import re
 from gtts import gTTS
+import uuid
+from io import BytesIO
 
 rutas = Blueprint('rutas', __name__)
 
@@ -78,42 +80,53 @@ def obtener_texto_lectura():
         'texto': texto
     })
 
+dictados_temp = {}
+
 @rutas.route('/v1/ejercicios/dictado', methods=['GET'])
 def obtener_audio_dictado():
     """Endpoint para obtener el audio para el ejercicio de dictado con palabras aleatorias y pausas de 5 segundos"""
     try:
-        # Lista de palabras base (puedes personalizar o ampliar)
+        print('Iniciando generación de audio de dictado...')
         palabras_base = [
             "biotecnología", "sostenibilidad", "paradigma", "correlación", "metodología",
             "hipótesis", "diagnóstico", "neurocientífico", "epistemológico", "interdisciplinario",
             "socioeconómico", "gubernamental", "antropológico", "psicopedagógico", "biodiversidad",
             "fotosíntesis", "ecosistema", "metamorfosis", "fenómeno", "simbiosis"
         ]
-        # Seleccionar aleatoriamente 7 palabras
         palabras = random.sample(palabras_base, 7)
-        # Generar audios individuales y concatenar con pausas de 5 segundos
+        print('Palabras seleccionadas:', palabras)
         audios = []
         for palabra in palabras:
+            print(f'Generando audio para la palabra: {palabra}')
             tts = gTTS(text=palabra, lang='es')
             temp_audio_path = os.path.join(TEMP_FOLDER, f'{palabra}_temp.mp3')
             tts.save(temp_audio_path)
             audio_segment = AudioSegment.from_file(temp_audio_path)
             audios.append(audio_segment)
-            # Agregar 5 segundos de silencio después de cada palabra (excepto la última)
             if palabra != palabras[-1]:
                 audios.append(AudioSegment.silent(duration=5000))
             os.remove(temp_audio_path)
         audio_final = sum(audios)
-        audio_path = os.path.join(TEMP_FOLDER, 'dictado_palabras.mp3')
-        audio_final.export(audio_path, format='mp3')
-        return send_file(
-            audio_path,
+        audio_buffer = BytesIO()
+        audio_final.export(audio_buffer, format='mp3')
+        audio_buffer.seek(0)
+        dictado_id = str(uuid.uuid4())
+        dictados_temp[dictado_id] = palabras
+        print('Enviando archivo de audio al frontend...')
+        response = send_file(
+            audio_buffer,
             mimetype='audio/mp3',
             as_attachment=True,
             download_name='dictado_palabras.mp3'
-        ), 200, {"X-Palabras-Dictado": ",".join(palabras)}
+        )
+        response.headers["X-Palabras-Dictado"] = ",".join(palabras)
+        response.headers["X-Dictado-Id"] = dictado_id
+        response.headers["Access-Control-Expose-Headers"] = "X-Palabras-Dictado, X-Dictado-Id"
+        print('Audio enviado correctamente.')
+        return response
     except Exception as e:
-        print(f"Error al generar audio de dictado: {str(e)}")
+        import traceback
+        print('Error al generar o enviar audio de dictado:', traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @rutas.route('/v1/ejercicios/dictado/evaluar', methods=['POST'])
@@ -122,25 +135,31 @@ def evaluar_dictado():
     try:
         data = request.get_json()
         texto_usuario = data.get('texto_usuario', '').strip()
-        
+        dictado_id = data.get('dictado_id', '').strip()
         if not texto_usuario:
             return jsonify({'error': 'No se proporcionó texto'}), 400
-        
-        texto_original = data.get('texto_original', '').strip()
-        if not texto_original:
-            return jsonify({'error': 'No se proporcionó el texto original'}), 400
-        
+        if not dictado_id or dictado_id not in dictados_temp:
+            return jsonify({'error': 'No se encontró el dictado'}), 400
+        palabras_correctas = dictados_temp.pop(dictado_id)
+        texto_original = " ".join(palabras_correctas)
         similitud = calcular_similitud_texto(texto_original, texto_usuario)
         errores = analizar_errores_dislexia(texto_original, texto_usuario)
         puntuacion = similitud * 100
-        
+        # ML features para dictado
+        features = {
+            'tiempo_respuesta': len(texto_usuario.split()),
+            'errores_ortograficos': sum(errores.values()),
+            'repeticiones': 0,  # No se mide en dictado simple
+            'comprension_lectora': similitud
+        }
+        ml_result = ServicioML().predict_dislexia(features)
         return jsonify({
             'puntuacion_general': round(puntuacion, 1),
             'precision': round(similitud * 100, 1),
             'fluidez': 85.0,
             'comprension': 90.0,
             'palabras_usuario': texto_usuario.split(),
-            'palabras_correctas': texto_original.split(),
+            'palabras_correctas': palabras_correctas,
             'detalles_analisis': [
                 {
                     'descripcion': 'Precisión en la escritura',
@@ -154,26 +173,30 @@ def evaluar_dictado():
             'recomendaciones': [
                 'Practique la escritura de palabras complejas',
                 'Revise el uso de mayúsculas y puntuación'
-            ]
+            ],
+            'ml_prediccion': ml_result.get('prediccion'),
+            'ml_probabilidad': ml_result.get('probabilidad')
         })
     except Exception as e:
+        import traceback
+        print('Error en evaluación de dictado:', traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @rutas.route('/v1/ejercicios/lectura/evaluar', methods=['POST'])
 def procesar_audio():
     if 'audio' not in request.files:
         return jsonify({'error': 'No se encontró el archivo de audio'}), 400
-
+    
     audio_file = request.files['audio']
     texto_original = request.form.get('texto_original')
     nivel_actual = request.form.get('nivel_actual', 'principiante')
 
     if audio_file.filename == '':
         return jsonify({'error': 'No se seleccionó ningún archivo'}), 400
-
+    
     if not texto_original:
         return jsonify({'error': 'No se proporcionó el texto original'}), 400
-
+    
     if not allowed_file(audio_file.filename):
         return jsonify({'error': f'Tipo de archivo no permitido. Formatos permitidos: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
 
@@ -183,15 +206,12 @@ def procesar_audio():
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.webm')
         audio_file.save(temp_file.name)
         temp_file.close()
-
         audio = AudioSegment.from_file(temp_file.name)
         wav_path = temp_file.name.replace('.webm', '.wav')
         audio.export(wav_path, format='wav')
-
         data, sample_rate = sf.read(wav_path)
         duration = len(data) / sample_rate
         intensity = np.abs(data).mean()
-
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
@@ -217,7 +237,7 @@ def procesar_audio():
 
         precision = round(similitud * 100, 1)
         fluidez = round(min(wpm / 150, 1) * 100, 1)
-        comprension = 100.0  # Valor por defecto, puedes ajustarlo si tienes una métrica real
+        comprension = 100.0
         recomendaciones = [
             r for r in [
                 "Practica la lectura en voz alta diariamente" if wpm < 100 else None,
@@ -254,6 +274,14 @@ def procesar_audio():
                 'cumplido': True
             })
 
+        # ML features para lectura
+        features = {
+            'tiempo_respuesta': duration,
+            'errores_ortograficos': total_errores,
+            'repeticiones': 0,  # Si tienes repeticiones, cámbialo aquí
+            'comprension_lectora': similitud
+        }
+        ml_result = ServicioML().predict_dislexia(features)
         return jsonify({
             'texto_original': texto_original,
             'texto_transcrito': texto_transcrito,
@@ -272,10 +300,13 @@ def procesar_audio():
             'siguiente_nivel': siguiente_nivel,
             'siguiente_texto': siguiente_texto,
             'recomendaciones': recomendaciones,
-            'detalles_analisis': detalles_analisis
+            'detalles_analisis': detalles_analisis,
+            'ml_prediccion': ml_result.get('prediccion'),
+            'ml_probabilidad': ml_result.get('probabilidad')
         })
     except Exception as e:
-        print(f"Error al procesar el audio: {str(e)}")
+        import traceback
+        print('Error en evaluación de lectura:', traceback.format_exc())
         return jsonify({'error': str(e)}), 500
     finally:
         try:
@@ -380,9 +411,20 @@ def evaluar_ejercicio_comprension():
             print('El campo respuestas no es una lista')
             return jsonify({'error': 'El campo respuestas debe ser una lista'}), 400
         resultados = evaluar_comprension(nivel, respuestas, tiempo_respuesta)
+        # ML features para comprensión
+        features = {
+            'tiempo_respuesta': tiempo_respuesta,
+            'errores_ortograficos': resultados.get('total', 0) - resultados.get('correctas', 0),
+            'repeticiones': 0,  # No se mide en comprensión
+            'comprension_lectora': resultados.get('puntaje', 0) / resultados.get('total', 1)
+        }
+        ml_result = ServicioML().predict_dislexia(features)
+        resultados['ml_prediccion'] = ml_result.get('prediccion')
+        resultados['ml_probabilidad'] = ml_result.get('probabilidad')
         return jsonify(resultados), 200
     except Exception as e:
-        print('Error en /v1/ejercicios/comprension/evaluar:', str(e))
+        import traceback
+        print('Error en evaluación de comprensión:', traceback.format_exc())
         return jsonify({'error': str(e)}), 400
 
 def calcular_similitud_texto(texto_original, texto_transcrito):
@@ -441,34 +483,28 @@ def analizar_errores_dislexia(texto_original, texto_transcrito):
         if i >= len(palabras_original):
             errores['adiciones'] += 1
             continue
-            
         palabra_orig = palabras_original[i]
-        
+        # Solo es correcta si es exactamente igual (ignorando mayúsculas y tildes)
         if palabra_trans == palabra_orig:
             continue
-            
         # Verificar inversiones (mismo conjunto de letras, diferente orden)
         if sorted(palabra_trans) == sorted(palabra_orig) and palabra_trans != palabra_orig:
             errores['inversiones'] += 1
             continue
-            
         # Calcular similitud entre palabras
         similitud = calcular_similitud_palabras(palabra_orig, palabra_trans)
-        
-        # Verificar omisiones
+        # Verificar omisiones (más estricto: similitud > 0.95)
         if len(palabra_trans) < len(palabra_orig):
-            if palabra_trans in palabra_orig or similitud > 0.7:
+            if palabra_trans in palabra_orig or similitud > 0.95:
                 errores['omisiones'] += 1
                 continue
-        
-        # Verificar adiciones
+        # Verificar adiciones (más estricto: similitud > 0.95)
         if len(palabra_trans) > len(palabra_orig):
-            if palabra_orig in palabra_trans or similitud > 0.7:
+            if palabra_orig in palabra_trans or similitud > 0.95:
                 errores['adiciones'] += 1
                 continue
-        
         # Verificar sustituciones (palabras diferentes pero similares)
-        if similitud < 0.8:  # Si las palabras son suficientemente diferentes
+        if similitud < 0.95:  # Ahora solo cuenta como sustitución si la similitud es menor a 0.95
             errores['sustituciones'] += 1
     
     # Ajustar omisiones si hay palabras faltantes al final

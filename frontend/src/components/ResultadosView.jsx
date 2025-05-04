@@ -169,7 +169,7 @@ const ResultadosView = () => {
         )}
 
         {/* Mostrar texto original y transcrito si existen */}
-        {tipo === 'dictado' && palabrasUsuario.length > 0 && palabrasCorrectas.length > 0 && (
+        {tipo === 'dictado' && palabrasCorrectas.length > 0 && (
           <Box sx={{ marginY: 4 }}>
             <Typography variant="subtitle1" gutterBottom>
               <b>Comparación de Palabras:</b>
@@ -192,7 +192,7 @@ const ResultadosView = () => {
                         <b>Correcta:</b> {palabra}
                       </Typography>
                       <Typography variant="body1" sx={{ flex: 1 }}>
-                        <b>Tu respuesta:</b> {palabrasUsuario[index] || 'No escrita'}
+                        <b>Tu respuesta:</b> {palabrasUsuario[index] && palabrasUsuario[index].trim() !== '' ? palabrasUsuario[index] : 'No escrita'}
                       </Typography>
                     </Box>
                   </Grid>
@@ -208,6 +208,23 @@ const ResultadosView = () => {
             <Bar data={datosGrafica} options={opcionesGrafica} />
           </Box>
         )}
+
+        <Box sx={{ marginY: 4 }}>
+          {/* Mostrar resultado del modelo de ML si está disponible */}
+          {typeof resultados.ml_prediccion !== 'undefined' && (
+            <Paper sx={{ padding: 2, backgroundColor: '#e3f2fd', marginBottom: 2 }}>
+              <Typography variant="h6" color="primary" gutterBottom>
+                Análisis del Modelo de Machine Learning
+              </Typography>
+              <Typography variant="body1">
+                <b>Predicción del modelo:</b> {resultados.ml_prediccion ? 'Posible dislexia' : 'Sin indicios claros de dislexia'}
+              </Typography>
+              <Typography variant="body1">
+                <b>Probabilidad estimada:</b> {(Number(resultados.ml_probabilidad) * 100).toFixed(1)}%
+              </Typography>
+            </Paper>
+          )}
+        </Box>
 
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
