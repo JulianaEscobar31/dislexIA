@@ -108,13 +108,9 @@ const ResultadosView = () => {
   // Filtrar recomendaciones válidas
   const recomendacionesValidas = (resultados.recomendaciones || []).filter(r => r && r.trim() !== '');
 
-  // Obtener palabras correctas y del usuario desde location.state o resultados
-  const palabrasUsuario = (location.state?.palabras_usuario && location.state.palabras_usuario.length > 0)
-    ? location.state.palabras_usuario
-    : (resultados.palabras_usuario || []);
-  const palabrasCorrectas = (location.state?.palabras_correctas && location.state.palabras_correctas.length > 0)
-    ? location.state.palabras_correctas
-    : (resultados.palabras_correctas || []);
+  // Obtener palabras correctas y del usuario directamente de la respuesta del backend
+  const palabrasUsuario = resultados.palabras_usuario || [];
+  const palabrasCorrectas = resultados.palabras_correctas || [];
 
   return (
     <Box sx={{ maxWidth: 800, margin: 'auto', padding: 4 }}>

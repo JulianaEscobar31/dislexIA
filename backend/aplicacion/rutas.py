@@ -139,12 +139,24 @@ def evaluar_dictado():
         if not texto_usuario:
             return jsonify({'error': 'No se proporcionó texto'}), 400
         if not dictado_id or dictado_id not in dictados_temp:
-            return jsonify({'error': 'No se encontró el dictado'}), 400
+            return jsonify({'error': 'No se encontró el dictado o ya fue evaluado. Por favor, solicite un nuevo dictado.'}), 400
         palabras_correctas = dictados_temp.pop(dictado_id)
         texto_original = " ".join(palabras_correctas)
         similitud = calcular_similitud_texto(texto_original, texto_usuario)
         errores = analizar_errores_dislexia(texto_original, texto_usuario)
-        puntuacion = similitud * 100
+        palabras_usuario = texto_usuario.split()
+        palabras_correctas_count = 0
+        def normalizar(palabra):
+            import unicodedata
+            return ''.join(c for c in unicodedata.normalize('NFD', palabra.lower()) if c.isalnum())
+        for i, palabra in enumerate(palabras_correctas):
+            if i < len(palabras_usuario):
+                palabra_usuario = normalizar(palabras_usuario[i])
+                palabra_correcta = normalizar(palabra)
+                similitud_palabra = calcular_similitud_palabras(palabra_correcta, palabra_usuario)
+                if similitud_palabra > 0.95:
+                    palabras_correctas_count += 1
+        puntuacion = (palabras_correctas_count / len(palabras_correctas)) * 100
         # ML features para dictado
         features = {
             'tiempo_respuesta': len(texto_usuario.split()),
@@ -158,7 +170,7 @@ def evaluar_dictado():
             'precision': round(similitud * 100, 1),
             'fluidez': 85.0,
             'comprension': 90.0,
-            'palabras_usuario': texto_usuario.split(),
+            'palabras_usuario': palabras_usuario,
             'palabras_correctas': palabras_correctas,
             'detalles_analisis': [
                 {

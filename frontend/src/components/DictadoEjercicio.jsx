@@ -23,11 +23,14 @@ const DictadoEjercicio = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Refuerzo: limpiar estado si no hay dictadoId o palabrasDictado válidos
     const palabrasGuardadas = localStorage.getItem('palabrasDictado');
     const dictadoIdGuardado = localStorage.getItem('dictadoId');
-    if (palabrasGuardadas && dictadoIdGuardado) {
-      setPalabrasDictado(JSON.parse(palabrasGuardadas));
-      setDictadoId(dictadoIdGuardado);
+    if (!palabrasGuardadas || !dictadoIdGuardado) {
+      setPalabrasDictado([]);
+      setDictadoId('');
+      setAudio(null);
+      setError('Por favor, obtenga un nuevo dictado antes de continuar.');
     }
     const obtenerAudio = async () => {
       try {
