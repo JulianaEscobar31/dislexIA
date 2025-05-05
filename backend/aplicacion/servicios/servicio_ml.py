@@ -49,10 +49,10 @@ class ServicioML:
         try:
             probabilidad = self.model.predict_proba(X_scaled)[0]
             prediccion = self.model.predict(X_scaled)[0]
-            
+            probabilidad_dislexia = float(probabilidad[1])  # Probabilidad de la clase 'dislexia'
             return {
                 'prediccion': bool(prediccion),
-                'probabilidad': float(max(probabilidad)),
+                'probabilidad': probabilidad_dislexia,
                 'features_utilizados': {
                     name: float(value) for name, value in zip(feature_names, X[0])
                 }

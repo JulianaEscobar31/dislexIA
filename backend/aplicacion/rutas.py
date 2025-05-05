@@ -227,7 +227,10 @@ def procesar_audio():
         recognizer = sr.Recognizer()
         with sr.AudioFile(wav_path) as source:
             audio_data = recognizer.record(source)
-            texto_transcrito = recognizer.recognize_google(audio_data, language='es-ES')
+            try:
+                texto_transcrito = recognizer.recognize_google(audio_data, language='es-ES')
+            except sr.UnknownValueError:
+                return jsonify({'error': 'No se pudo entender el audio. Por favor, intenta grabar de nuevo.'}), 400
 
         similitud = calcular_similitud_texto(texto_original, texto_transcrito)
         errores = analizar_errores_dislexia(texto_original, texto_transcrito)
@@ -438,6 +441,31 @@ def evaluar_ejercicio_comprension():
         import traceback
         print('Error en evaluación de comprensión:', traceback.format_exc())
         return jsonify({'error': str(e)}), 400
+
+@rutas.route('/api/v1/ejercicios/analisis_global', methods=['POST'])
+def analisis_global():
+    try:
+        data = request.get_json()
+        dictado = data.get('dictado', {})
+        lectura = data.get('lectura', {})
+        comprension = data.get('comprension', {})
+        # Combinar features relevantes (puedes ajustar el peso o lógica según tu modelo)
+        features = {
+            'tiempo_respuesta': float(dictado.get('tiempo_respuesta', 0)) + float(lectura.get('tiempo_respuesta', 0)) + float(comprension.get('tiempo_respuesta', 0)),
+            'errores_ortograficos': float(dictado.get('errores_ortograficos', 0)) + float(lectura.get('errores_ortograficos', 0)) + float(comprension.get('errores_ortograficos', 0)),
+            'repeticiones': float(dictado.get('repeticiones', 0)) + float(lectura.get('repeticiones', 0)) + float(comprension.get('repeticiones', 0)),
+            'comprension_lectora': (float(dictado.get('comprension_lectora', 0)) + float(lectura.get('comprension_lectora', 0)) + float(comprension.get('comprension_lectora', 0))) / 3
+        }
+        ml_result = ServicioML().predict_dislexia(features)
+        return jsonify({
+            'ml_prediccion_global': ml_result.get('prediccion'),
+            'ml_probabilidad_global': ml_result.get('probabilidad'),
+            'features_utilizados': ml_result.get('features_utilizados', {})
+        })
+    except Exception as e:
+        import traceback
+        print('Error en análisis global:', traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 def calcular_similitud_texto(texto_original, texto_transcrito):
     """Calcula la similitud entre el texto original y el transcrito"""

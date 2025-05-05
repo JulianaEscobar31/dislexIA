@@ -61,22 +61,25 @@ const ResultadosView = () => {
   const precision = Number(resultados.precision) || 0;
   const fluidez = Number(resultados.fluidez) || 0;
   const comprension = Number(resultados.comprension) || 0;
+  const probabilidadML = resultados.ml_probabilidad !== undefined ? Number(resultados.ml_probabilidad) * 100 : 0;
 
   const datosGrafica = {
-    labels: ['Precisión', 'Fluidez', 'Comprensión'],
+    labels: ['Precisión', 'Fluidez', 'Comprensión', 'Probabilidad ML'],
     datasets: [
       {
         label: 'Puntuación',
-        data: [precision, fluidez, comprension],
+        data: [precision, fluidez, comprension, probabilidadML],
         backgroundColor: [
           'rgba(54, 162, 235, 0.6)',
           'rgba(75, 192, 192, 0.6)',
-          'rgba(153, 102, 255, 0.6)'
+          'rgba(153, 102, 255, 0.6)',
+          'rgba(255, 99, 132, 0.6)'
         ],
         borderColor: [
           'rgba(54, 162, 235, 1)',
           'rgba(75, 192, 192, 1)',
-          'rgba(153, 102, 255, 1)'
+          'rgba(153, 102, 255, 1)',
+          'rgba(255, 99, 132, 1)'
         ],
         borderWidth: 1
       }

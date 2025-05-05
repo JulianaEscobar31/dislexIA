@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import AudioRecorder from './AudioRecorder';
 
-const LecturaEjercicio = () => {
+const LecturaEjercicio = (props) => {
     const [texto, setTexto] = useState('');
     const [grabando, setGrabando] = useState(false);
     const [audioBlob, setAudioBlob] = useState(null);
@@ -52,6 +52,10 @@ const LecturaEjercicio = () => {
                 }
             );
             
+            if (props.onFinish) {
+                props.onFinish(response.data);
+                return;
+            }
             navigate('/resultados', { 
                 state: { 
                     resultados: response.data,

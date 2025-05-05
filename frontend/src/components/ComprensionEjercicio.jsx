@@ -3,7 +3,7 @@ import { Box, Typography, Button, Paper, CircularProgress, Alert, Radio, RadioGr
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-const ComprensionEjercicio = () => {
+const ComprensionEjercicio = (props) => {
   const [ejercicio, setEjercicio] = useState(null);
   const [respuestas, setRespuestas] = useState({});
   const [cargando, setCargando] = useState(true);
@@ -39,6 +39,10 @@ const ComprensionEjercicio = () => {
         respuestas: Object.values(respuestas),
         tiempo_respuesta: 0
       });
+      if (props.onFinish) {
+        props.onFinish(response.data);
+        return;
+      }
       navigate('/resultados', {
         state: {
           resultados: response.data,

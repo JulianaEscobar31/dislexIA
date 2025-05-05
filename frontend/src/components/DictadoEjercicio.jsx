@@ -11,7 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-const DictadoEjercicio = () => {
+const DictadoEjercicio = (props) => {
   const [audio, setAudio] = useState(null);
   const [palabrasDictado, setPalabrasDictado] = useState([]);
   const [textoUsuario, setTextoUsuario] = useState('');
@@ -132,9 +132,14 @@ const DictadoEjercicio = () => {
           dictado_id: dictadoId
         }
       );
+      console.log('Respuesta del backend:', response.data);
       localStorage.removeItem('palabrasDictado');
       localStorage.removeItem('audioDictado');
       localStorage.removeItem('dictadoId');
+      if (props.onFinish) {
+        props.onFinish(response.data);
+        return;
+      }
       navigate('/resultados', { 
         state: { 
           resultados: response.data,
@@ -145,6 +150,15 @@ const DictadoEjercicio = () => {
       });
     } catch (error) {
       console.error('Error al enviar respuesta:', error);
+      if (error.response && error.response.status === 400) {
+        setError('El dictado expiró o ya fue evaluado. Avanzando al siguiente ejercicio...');
+        setTimeout(() => {
+          if (props.onFinish) {
+            props.onFinish({ error: true });
+          }
+        }, 1500);
+        return;
+      }
       setError('Error al procesar la respuesta. Por favor, intente nuevamente.');
     } finally {
       setCargando(false);
